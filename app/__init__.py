@@ -7,7 +7,8 @@ from dotenv import load_dotenv #loads environment variables from a .env file int
 
 db = SQLAlchemy()
 
-def create_app(): #instead of creating the app globally, you create it inside a function so you can configure it flexibly
+def create_app(test_config=None): 
+    #instead of creating the app globally, you create it inside a function so you can configure it flexibly
 
     load_dotenv() # loads variabled from the .env file into environment
 
@@ -21,7 +22,11 @@ def create_app(): #instead of creating the app globally, you create it inside a 
         "DATABASE_URL"
     ) #set up db connection string from the environment variable
     
-    app.config["SQLALCHEMY_TRCK_MODIFICATIONS"] = False #Disables SQLAlchemy’s event system that tracks object changes.
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False 
+    #Disables SQLAlchemy’s event system that tracks object changes.
+
+    if test_config is not None:
+        app.config.update(test_config)
 
     # It’s not needed in most cases and consumes extra memory, so it’s best practice to set it to False.
 
