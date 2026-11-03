@@ -1,5 +1,5 @@
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask import Blueprint, current_app, request, session
 
@@ -77,7 +77,7 @@ def execute_workflow_route(workflow_id):
 
         execution.status = result.get("status", "failed")
         execution.result = result
-        execution.finished_at = datetime.utcnow()
+        execution.finished_at = datetime.now(timezone.utc)
 
         db.session.commit()
 
@@ -95,7 +95,7 @@ def execute_workflow_route(workflow_id):
         execution.result = {
             "error": "An unexpected error occurred during execution."
         }
-        execution.finished_at = datetime.utcnow()
+        execution.finished_at = datetime.now(timezone.utc)
 
         db.session.commit()
 
