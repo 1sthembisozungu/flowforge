@@ -359,7 +359,7 @@ select:focus {
     background-color: #b91c1c;
     border-color: #b91c1c;
 }
-
+ 
 
 .primary {
     background: var(--primary);
@@ -493,4 +493,31 @@ th {
         align-items: flex-start;
         flex-direction: column;
     }
+}
+
+.workflow-step-summary {
+    display: grid;
+    gap: 12px;
+    margin: 18px 0;
+    padding: 15px;
+    background: var(--surface-secondary);
+    border-radius: 8px;
+}
+
+.workflow-step-item strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 13px;
+}
+
+.workflow-step-item p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.empty-steps {
+    font-size: 13px;
+    color: var(--text-secondary);
 }

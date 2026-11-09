@@ -94,30 +94,81 @@
                 </div>
 
 
-                <form id="create-workflow-form" class="create-workflow-form">
-                    <h3>Create a workflow</h3>
-                    <p>Give your new workflow a name and description.</p>
 
-                    <label for="new-workflow-name">Workflow name</label>
-                    <input id="new-workflow-name" name="name" type="text" maxlength="255"
-                        placeholder="e.g. Invoice Monitor" required>
+                <form id="create-workflow-form">
 
-                    <label for="new-workflow-description">Description</label>
-                    <textarea id="new-workflow-description" name="description" rows="3"
-                        placeholder="Describe what this workflow should do."></textarea>
+                    <!-- Workflow details -->
+                    <div class="form-section">
+                        <h3>Workflow details</h3>
 
-                    <label for="new-workflow-status">Initial status</label>
-                    <select id="new-workflow-status" name="status" required>
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                    </select>
+                        <label for="workflow-name">Workflow name</label>
+                        <input type="text" id="workflow-name" name="name" placeholder="e.g. Invoice Monitor"
+                            maxlength="255" required>
 
-                    <button type="submit" id="create-workflow-button" class="button primary">
-                        Create workflow
-                    </button>
+                        <label for="workflow-description">Description</label>
+                        <textarea id="workflow-description" name="description"
+                            placeholder="Describe what this workflow does..."></textarea>
 
-                    <p id="create-workflow-message" class="message" role="status"></p>
+                        <label for="workflow-status">Status</label>
+                        <select id="workflow-status" name="status">
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                    </div>
+
+                    <!-- Trigger configuration -->
+                    <div class="form-section">
+                        <h3>1. Trigger</h3>
+                        <p>Choose what starts this workflow.</p>
+
+                        <label for="trigger-event">Trigger event</label>
+                        <select id="trigger-event" name="trigger-event">
+                            <option value="email_received">Email received</option>
+                        </select>
+                    </div>
+
+                    <!-- Condition configuration -->
+                    <div class="form-section">
+                        <h3>2. Condition</h3>
+                        <p>Define what must be true before the action runs.</p>
+
+                        <label for="condition-field">Email field</label>
+                        <select id="condition-field" name="condition-field">
+                            <option value="subject">Email subject</option>
+                            <option value="body">Email body</option>
+                        </select>
+
+                        <label for="condition-operator">Operator</label>
+                        <select id="condition-operator" name="condition-operator">
+                            <option value="contains">Contains</option>
+                        </select>
+
+                        <label for="condition-value">Text to look for</label>
+                        <input type="text" id="condition-value" name="condition-value" placeholder="e.g. invoice"
+                            required>
+                    </div>
+
+                    <!-- Action configuration -->
+                    <div class="form-section">
+                        <h3>3. Action</h3>
+                        <p>Define what happens when the condition matches.</p>
+
+                        <label for="action-type">Action type</label>
+                        <select id="action-type" name="action-type">
+                            <option value="log_message">Log a message</option>
+                        </select>
+
+                        <label for="action-message">Message</label>
+                        <textarea id="action-message" name="action-message"
+                            placeholder="e.g. An invoice email was detected." required></textarea>
+                    </div>
+
+                    <button type="submit" id="create-workflow-button">Create workflow</button>
+
+                    <p id="create-workflow-message" role="status"></p>
+
                 </form>
+
 
 
                 <p id="workflow-message" class="message" role="status">

@@ -94,3 +94,49 @@ def create_workflow_step(workflow_id):
             "configuration": step.configuration
         }
     }, 201
+
+
+
+@workflow_steps_bp.route(
+    "/api/workflows/<int:workflow_id>/steps",
+    methods=["GET"]
+)
+def get_workflow_steps(workflow_id):
+    # 1. Check whether the user is logged in.
+    user_id = session.get("user_id")
+
+    if user_id is None:
+        return {
+            "error": "Authentication required. Please log in."
+        }, 401
+
+    # 2. Verify that the workflow belongs to the user.
+    workflow = db.session.get(Workflow, workflow_id)
+
+    if workflow is None or workflow.user_id != user_id:
+        return {"error": "Workflow not found."}, 404
+
+    print("Logged-in user ID:", user_id)
+    print("Requested workflow ID:", workflow_id)
+
+    # 3. Retrieve the workflow steps in execution order.
+    steps = WorkflowStep.query.filter_by(
+        workflow_id=workflow_id
+    ).order_by(
+        WorkflowStep.step_order.asc()
+    ).all()
+
+    # 4. Return the saved steps.
+    return {
+        "steps": [
+            {
+                "id": step.id,
+                "workflow_id": step.workflow_id,
+                "step_type": step.step_type,
+                "step_order": step.step_order,
+                "configuration": step.configuration
+            }
+            for step in steps
+        ]
+    }, 200
+

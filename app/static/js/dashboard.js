@@ -1,34 +1,83 @@
 
 "use strict";
 
-// Find the HTML elements that the dashboard needs to update.
+// ============================================================
+// 1. DOM ELEMENTS
+// ============================================================
+
+const API_BASE = "/api";
+
+// Dashboard statistics
 const totalWorkflowsElement = document.getElementById("total-workflows");
 const activeWorkflowsElement = document.getElementById("active-workflows");
 const totalExecutionsElement = document.getElementById("total-executions");
 
+// Workflow section
 const workflowListElement = document.getElementById("workflow-list");
-const workflowSelectElement = document.getElementById("workflow-id");
 const workflowMessageElement = document.getElementById("workflow-message");
+const refreshWorkflowsButton = document.getElementById("refresh-workflows");
 
-const executionForm = document.getElementById("execution-form");
-const executeButton = document.getElementById("execute-button");
-const executionResultElement = document.getElementById("execution-result");
-const executionResultContent = document.getElementById("execution-result-content");
-
-const historyMessageElement = document.getElementById("history-message");
-const historyTableBody = document.getElementById("history-table-body");
-// Elements used to create a workflow.
+// Workflow builder
 const createWorkflowForm = document.getElementById("create-workflow-form");
+const workflowNameInput = document.getElementById("workflow-name");
+const workflowDescriptionInput = document.getElementById("workflow-description");
+const workflowStatusInput = document.getElementById("workflow-status");
+
+const triggerEventInput = document.getElementById("trigger-event");
+
+const conditionFieldInput = document.getElementById("condition-field");
+const conditionOperatorInput = document.getElementById("condition-operator");
+const conditionValueInput = document.getElementById("condition-value");
+
+const actionTypeInput = document.getElementById("action-type");
+const actionMessageInput = document.getElementById("action-message");
+
 const createWorkflowButton = document.getElementById("create-workflow-button");
 const createWorkflowMessage = document.getElementById("create-workflow-message");
 
-// Store the workflows retrieved from Flask.
-let workflows = [];
+// Workflow testing
+const executionForm = document.getElementById("execution-form");
+const workflowSelectElement = document.getElementById("workflow-id");
+const executionSubjectInput = document.getElementById("email-subject");
+const executionBodyInput = document.getElementById("email-body");
+const executeButton = document.getElementById("execute-button");
 
-// Safely create an HTML element and set its text.
+const executionResultElement = document.getElementById("execution-result");
+const executionResultContent = document.getElementById("execution-result-content");
+
+// Execution history
+const historyMessageElement = document.getElementById("history-message");
+const historyTableBody = document.getElementById("history-table-body");
+const refreshHistoryButton = document.getElementById("refresh-history");
+
+
+// ============================================================
+// 2. HELPER FUNCTIONS
+// ============================================================
+
+async function getResponseData(response) {
+    let data;
+
+    try {
+        data = await response.json();
+    } catch {
+        throw new Error("The server returned an invalid response.");
+    }
+
+    if (!response.ok) {
+        throw new Error(
+            data.error || data.message || `Request failed: ${response.status}`
+        );
+    }
+
+    return data;
+}
+
+
 function createTextElement(tagName, text, className = "") {
     const element = document.createElement(tagName);
-    element.textContent = text;
+
+    element.textContent = text ?? "";
 
     if (className) {
         element.className = className;
@@ -37,7 +86,7 @@ function createTextElement(tagName, text, className = "") {
     return element;
 }
 
-// Convert an API date into a readable date and time.
+
 function formatDate(dateValue) {
     if (!dateValue) {
         return "—";
@@ -46,326 +95,819 @@ function formatDate(dateValue) {
     const date = new Date(dateValue);
 
     if (Number.isNaN(date.getTime())) {
-        return "Invalid date";
+        return "—";
     }
 
     return date.toLocaleString();
 }
 
-// Read a JSON response and report unsuccessful HTTP responses.
-async function getResponseData(response) {
-    const data = await response.json();
 
-    if (!response.ok) {
-        throw new Error(data.error || "The request failed.");
-    }
+function showMessage(element, message, isError = false) {
+    if (!element) return;
 
-    return data;
+    element.textContent = message;
+    element.classList.toggle("error", isError);
+    element.classList.toggle("success", !isError);
 }
 
-// Load workflows from the Flask API.
+
+function setButtonLoading(button, isLoading, normalText, loadingText) {
+    if (!button) return;
+
+    button.disabled = isLoading;
+    button.textContent = isLoading ? loadingText : normalText;
+}
+
+
+// ============================================================
+// 3. LOAD WORKFLOWS
+// ============================================================
+
 async function loadWorkflows() {
-    workflowMessageElement.textContent = "Loading workflows...";
-
     try {
-        const response = await fetch("/api/workflows");
+        showMessage(workflowMessageElement, "Loading workflows...");
+
+        const response = await fetch(`${API_BASE}/workflows`, {
+            method: "GET",
+            credentials: "same-origin"
+        });
+
         const data = await getResponseData(response);
+        const workflows = data.workflows || [];
 
-        workflows = Array.isArray(data.workflows) ? data.workflows : [];
+        // Update workflow statistics.
+        if (totalWorkflowsElement) {
+            totalWorkflowsElement.textContent = workflows.length;
+        }
 
-        // Update the overview cards.
-        totalWorkflowsElement.textContent = workflows.length;
-
-        activeWorkflowsElement.textContent = workflows.filter(
+        const activeWorkflows = workflows.filter(
             workflow => workflow.status === "active"
-        ).length;
-
-        // Rebuild the workflow dropdown and workflow list.
-        workflowSelectElement.replaceChildren(
-            createTextElement("option", "Select a workflow")
         );
-        workflowSelectElement.options[0].value = "";
 
-        workflowListElement.replaceChildren();
-
-        if (workflows.length === 0) {
-            workflowMessageElement.textContent =
-                "No workflows found. Create a workflow through the API first.";
-
-            totalExecutionsElement.textContent = "0";
-            historyTableBody.replaceChildren();
-            historyMessageElement.textContent = "No workflow selected.";
-            return;
+        if (activeWorkflowsElement) {
+            activeWorkflowsElement.textContent = activeWorkflows.length;
         }
 
-        workflowMessageElement.textContent =
-            `${workflows.length} workflow(s) loaded successfully.`;
+        displayWorkflows(workflows);
+        populateWorkflowSelect(workflows);
 
-        workflows.forEach(workflow => {
-            // Add this workflow to the dropdown.
-            const option = createTextElement("option", workflow.name);
-            option.value = workflow.id;
-            workflowSelectElement.appendChild(option);
-
-            // Create a card for the workflow.
-            const card = createTextElement("article", "", "workflow-card");
-            const details = createTextElement("div", "", "workflow-details");
-            const name = createTextElement("h3", workflow.name);
-            const description = createTextElement(
-                "p",
-                workflow.description || "No description provided."
-            );
-            const status = createTextElement(
-                "span",
-                workflow.status,
-                `status-badge ${workflow.status}`
-            );
-
-            details.append(name, description);
-            card.append(details, status);
-
-            const actions = createTextElement("div", "", "workflow-actions");
-
-            const testButton = createTextElement("button", "Test workflow", "button primary");
-            testButton.type = "button";
-            testButton.addEventListener("click", () => {
-                workflowSelectElement.value = String(workflow.id);
-                document.getElementById("test-workflow").scrollIntoView({
-                    behavior: "smooth"
-                });
-                loadExecutionHistory(workflow.id);
-            });
-
-            const historyButton = createTextElement(
-                "button",
-                "View history",
-                "button secondary"
-            );
-            historyButton.type = "button";
-            historyButton.addEventListener("click", () => {
-                workflowSelectElement.value = String(workflow.id);
-                loadExecutionHistory(workflow.id);
-                document.getElementById("history").scrollIntoView({
-                    behavior: "smooth"
-                });
-            });
-
-            actions.append(testButton, historyButton);
-            card.appendChild(actions);
-            workflowListElement.appendChild(card);
-        });
-
-        // Keep the current selection if it still exists.
-        const currentSelection = workflows.find(
-            workflow => String(workflow.id) === workflowSelectElement.value
+        showMessage(
+            workflowMessageElement,
+            workflows.length
+                ? `${workflows.length} workflow(s) loaded successfully.`
+                : "You have not created any workflows yet."
         );
 
-        if (!currentSelection) {
-            workflowSelectElement.value = "";
-            totalExecutionsElement.textContent = "0";
-            historyTableBody.replaceChildren();
-            historyMessageElement.textContent =
-                "Select a workflow to view its history.";
+        // Load the execution count across the available workflows.
+        await loadTotalExecutionCount(workflows);
+
+        // Load history for the currently selected workflow.
+        if (workflowSelectElement?.value) {
+            await loadExecutionHistory(workflowSelectElement.value);
         } else {
-            await loadExecutionHistory(currentSelection.id);
+            clearExecutionHistory();
         }
+
     } catch (error) {
-        workflowMessageElement.textContent =
-            `Could not load workflows: ${error.message}`;
+        console.error("Error loading workflows:", error);
+
+        showMessage(
+            workflowMessageElement,
+            error.message,
+            true
+        );
     }
 }
 
-// Load execution history for one workflow.
-async function loadExecutionHistory(workflowId) {
-    if (!workflowId) {
-        totalExecutionsElement.textContent = "0";
-        historyTableBody.replaceChildren();
-        historyMessageElement.textContent =
-            "Select a workflow to view its history.";
-        return;
-    }
 
-    historyMessageElement.textContent = "Loading execution history...";
-    historyTableBody.replaceChildren();
+// ============================================================
+// 4. DISPLAY WORKFLOW CARDS
+// ============================================================
 
-    try {
-        const response = await fetch(
-            `/api/workflows/${encodeURIComponent(workflowId)}/executions`
+function displayWorkflows(workflows) {
+    if (!workflowListElement) return;
+
+    workflowListElement.replaceChildren();
+
+    if (workflows.length === 0) {
+        workflowListElement.appendChild(
+            createTextElement(
+                "p",
+                "No workflows created yet.",
+                "empty-message"
+            )
         );
 
-        const data = await getResponseData(response);
-        const executions = Array.isArray(data.executions) ? data.executions : [];
-
-        // This count is for the selected workflow's returned history.
-        totalExecutionsElement.textContent =
-            data.count ?? executions.length;
-
-        if (executions.length === 0) {
-            historyMessageElement.textContent =
-                "This workflow has no recorded executions yet.";
-            return;
-        }
-
-        historyMessageElement.textContent =
-            `Showing ${executions.length} recent execution(s) for ${data.workflow_name}.`;
-
-        executions.forEach(execution => {
-            const row = document.createElement("tr");
-
-            row.append(
-                createTextElement("td", String(execution.id)),
-                createTextElement(
-                    "td",
-                    execution.status || "unknown",
-                    `execution-status ${execution.status || ""}`
-                ),
-                createTextElement("td", formatDate(execution.started_at)),
-                createTextElement("td", formatDate(execution.finished_at))
-            );
-
-            historyTableBody.appendChild(row);
-        });
-    } catch (error) {
-        totalExecutionsElement.textContent = "—";
-        historyMessageElement.textContent =
-            `Could not load execution history: ${error.message}`;
-    }
-}
-
-// Send the simulated email to the selected workflow.
-executionForm.addEventListener("submit", async event => {
-    event.preventDefault();
-
-    const workflowId = workflowSelectElement.value;
-    const subject = document.getElementById("email-subject").value.trim();
-    const body = document.getElementById("email-body").value.trim();
-
-    if (!workflowId) {
-        historyMessageElement.textContent = "Please select a workflow first.";
         return;
     }
 
-    executeButton.disabled = true;
-    executeButton.textContent = "Running...";
-    executionResultElement.hidden = true;
+    workflows.forEach(workflow => {
+        const card = document.createElement("article");
+        card.className = "workflow-card";
 
+        const heading = createTextElement("h3", workflow.name);
+
+        const description = createTextElement(
+            "p",
+            workflow.description || "No description provided."
+        );
+
+        const status = createTextElement(
+            "span",
+            workflow.status,
+            `status status-${workflow.status}`
+        );
+
+        const createdAt = createTextElement(
+            "small",
+            `Created: ${formatDate(workflow.created_at)}`
+        );
+
+        const stepSummary = document.createElement("div");
+        stepSummary.className = "workflow-step-summary";
+        stepSummary.textContent = "Loading workflow steps...";
+
+        const testButton = createTextElement(
+            "button",
+            "Test workflow",
+            "button secondary test-workflow-button"
+        );
+
+        testButton.type = "button";
+        testButton.dataset.workflowId = workflow.id;
+
+        const historyButton = createTextElement(
+            "button",
+            "View history",
+            "button secondary view-history-button"
+        );
+
+        historyButton.type = "button";
+        historyButton.dataset.workflowId = workflow.id;
+
+        card.append(
+            heading,
+            description,
+            status,
+            createdAt,
+            stepSummary,
+            testButton,
+            historyButton
+        );
+
+        workflowListElement.appendChild(card);
+
+        // Load the trigger, condition and action for this workflow.
+        loadWorkflowSteps(workflow.id, stepSummary);
+    });
+}
+
+
+// ============================================================
+// 5. LOAD WORKFLOW STEPS
+// ============================================================
+
+async function loadWorkflowSteps(workflowId, container) {
     try {
         const response = await fetch(
-            `/api/workflows/${encodeURIComponent(workflowId)}/execute`,
+            `${API_BASE}/workflows/${workflowId}/steps`,
             {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ subject, body })
+                method: "GET",
+                credentials: "same-origin"
             }
         );
 
         const data = await getResponseData(response);
 
-        // Display the complete response, including the engine's result.
-        executionResultContent.textContent =
-            JSON.stringify(data, null, 2);
+        displayWorkflowSteps(data.steps || [], container);
 
-        executionResultElement.hidden = false;
-
-        // Reload the saved history after the run finishes.
-        await loadExecutionHistory(workflowId);
     } catch (error) {
-        executionResultContent.textContent = JSON.stringify(
-            { error: error.message },
-            null,
-            2
+        console.error(
+            `Could not load steps for workflow ${workflowId}:`,
+            error
         );
 
-        executionResultElement.hidden = false;
-    } finally {
-        executeButton.disabled = false;
-        executeButton.textContent = "Run workflow";
-    }
-});
-
-// Load history whenever the selected workflow changes.
-workflowSelectElement.addEventListener("change", () => {
-    loadExecutionHistory(workflowSelectElement.value);
-});
-
-// Connect the refresh buttons.
-document.getElementById("refresh-workflows").addEventListener("click", () => {
-    loadWorkflows();
-});
-
-document.getElementById("refresh-history").addEventListener("click", () => {
-    loadExecutionHistory(workflowSelectElement.value);
-});
-
-// Make the execution card's meaning clear.
-const executionCard = totalExecutionsElement.closest(".stat-card");
-if (executionCard) {
-    const description = executionCard.querySelector("span");
-
-    if (description) {
-        description.textContent = "For the selected workflow";
+        container.textContent = "Unable to load workflow steps.";
     }
 }
 
 
-// Create a workflow through the existing Flask API.
-createWorkflowForm.addEventListener("submit", async event => {
-    // Stop the browser from reloading the page.
-    event.preventDefault();
+function displayWorkflowSteps(steps, container) {
+    container.replaceChildren();
 
-    const name = document.getElementById("new-workflow-name").value.trim();
-    const description = document.getElementById("new-workflow-description").value.trim();
-    const status = document.getElementById("new-workflow-status").value;
+    if (steps.length === 0) {
+        container.appendChild(
+            createTextElement(
+                "p",
+                "No steps configured.",
+                "empty-steps"
+            )
+        );
 
-    if (!name) {
-        createWorkflowMessage.textContent = "Please enter a workflow name.";
         return;
     }
 
-    createWorkflowButton.disabled = true;
-    createWorkflowButton.textContent = "Creating...";
-    createWorkflowMessage.textContent = "";
+    steps.forEach(step => {
+        const item = document.createElement("div");
+        item.className = "workflow-step-item";
+
+        const configuration = step.configuration || {};
+
+        let title;
+        let description;
+
+        switch (step.step_type) {
+            case "trigger":
+                title = "Trigger";
+                description = `Event: ${configuration.event || "Not configured"}`;
+                break;
+
+            case "condition":
+                title = "Condition";
+                description =
+                    `${configuration.field || "field"} ` +
+                    `${configuration.operator || "operator"} ` +
+                    `"${configuration.value || ""}"`;
+                break;
+
+            case "action":
+                title = "Action";
+                description =
+                    configuration.message ||
+                    configuration.type ||
+                    "Not configured";
+                break;
+
+            default:
+                title = step.step_type;
+                description = "Unknown workflow step.";
+        }
+
+        item.append(
+            createTextElement(
+                "strong",
+                `Step ${step.step_order}: ${title}`
+            ),
+            createTextElement("p", description)
+        );
+
+        container.appendChild(item);
+    });
+}
+
+
+// ============================================================
+// 6. POPULATE WORKFLOW DROPDOWN
+// ============================================================
+
+function populateWorkflowSelect(workflows) {
+    if (!workflowSelectElement) return;
+
+    const previousValue = workflowSelectElement.value;
+
+    workflowSelectElement.replaceChildren();
+
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.textContent = "Select a workflow";
+
+    workflowSelectElement.appendChild(defaultOption);
+
+    workflows.forEach(workflow => {
+        const option = document.createElement("option");
+
+        option.value = workflow.id;
+        option.textContent = workflow.name;
+
+        workflowSelectElement.appendChild(option);
+    });
+
+    // Preserve the user's previous selection when possible.
+    const previousWorkflowExists = workflows.some(
+        workflow => String(workflow.id) === previousValue
+    );
+
+    if (previousWorkflowExists) {
+        workflowSelectElement.value = previousValue;
+    } else if (workflows.length > 0) {
+        workflowSelectElement.value = String(workflows[0].id);
+    }
+}
+
+
+// ============================================================
+// 7. CREATE WORKFLOW
+// ============================================================
+
+async function createWorkflow(event) {
+    event.preventDefault();
+
+    const workflowName = workflowNameInput.value.trim();
+    const workflowDescription = workflowDescriptionInput.value.trim();
+    const workflowStatus = workflowStatusInput.value;
+
+    const triggerEvent = triggerEventInput.value;
+
+    const conditionField = conditionFieldInput.value;
+    const conditionOperator = conditionOperatorInput.value;
+    const conditionValue = conditionValueInput.value.trim();
+
+    const actionType = actionTypeInput.value;
+    const actionMessage = actionMessageInput.value.trim();
+
+    if (
+        !workflowName ||
+        !conditionValue ||
+        !actionMessage
+    ) {
+        showMessage(
+            createWorkflowMessage,
+            "Please complete all required fields.",
+            true
+        );
+
+        return;
+    }
+
+    setButtonLoading(
+        createWorkflowButton,
+        true,
+        "Create workflow",
+        "Creating workflow..."
+    );
 
     try {
-        const response = await fetch("/api/workflows", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
+        // STEP 1: Create the workflow.
+        const workflowResponse = await fetch(
+            `${API_BASE}/workflows`,
+            {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    name: workflowName,
+                    description: workflowDescription,
+                    status: workflowStatus
+                })
+            }
+        );
+
+        const workflowData = await getResponseData(workflowResponse);
+        const workflow = workflowData.workflow;
+
+        if (!workflow?.id) {
+            throw new Error(
+                "The server did not return the created workflow ID."
+            );
+        }
+
+        // STEP 2: Prepare the three workflow steps.
+        const steps = [
+            {
+                step_type: "trigger",
+                step_order: 1,
+                configuration: {
+                    event: triggerEvent
+                }
             },
-            body: JSON.stringify({
-                user_id: 1,
-                name: name,
-                description: description,
-                status: status
+            {
+                step_type: "condition",
+                step_order: 2,
+                configuration: {
+                    field: conditionField,
+                    operator: conditionOperator,
+                    value: conditionValue
+                }
+            },
+            {
+                step_type: "action",
+                step_order: 3,
+                configuration: {
+                    type: actionType,
+                    message: actionMessage
+                }
+            }
+        ];
+
+        // STEP 3: Save the steps one at a time.
+        for (const step of steps) {
+            const stepResponse = await fetch(
+                `${API_BASE}/workflows/${workflow.id}/steps`,
+                {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(step)
+                }
+            );
+
+            await getResponseData(stepResponse);
+        }
+
+        showMessage(
+            createWorkflowMessage,
+            "Workflow and all three steps created successfully."
+        );
+
+        createWorkflowForm.reset();
+
+        // Reload the dashboard and select the new workflow.
+        await loadWorkflows();
+
+        if (workflowSelectElement) {
+            workflowSelectElement.value = String(workflow.id);
+            await loadExecutionHistory(workflow.id);
+        }
+
+    } catch (error) {
+        console.error("Error creating workflow:", error);
+
+        showMessage(
+            createWorkflowMessage,
+            error.message,
+            true
+        );
+
+    } finally {
+        setButtonLoading(
+            createWorkflowButton,
+            false,
+            "Create workflow",
+            "Creating workflow..."
+        );
+    }
+}
+
+
+// ============================================================
+// 8. EXECUTE WORKFLOW
+// ============================================================
+
+async function executeWorkflow(event) {
+    event.preventDefault();
+
+    const workflowId = workflowSelectElement.value;
+    const subject = executionSubjectInput.value.trim();
+    const body = executionBodyInput.value.trim();
+
+    if (!workflowId) {
+        showMessage(
+            historyMessageElement,
+            "Please select a workflow first.",
+            true
+        );
+
+        return;
+    }
+
+    setButtonLoading(
+        executeButton,
+        true,
+        "Run workflow",
+        "Running workflow..."
+    );
+
+    try {
+        const response = await fetch(
+            `${API_BASE}/workflows/${workflowId}/execute`,
+            {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    subject: subject,
+                    body: body
+                })
+            }
+        );
+
+        const data = await getResponseData(response);
+
+        // Display the execution response inside the existing result box.
+        if (executionResultElement) {
+            executionResultElement.hidden = false;
+        }
+
+        if (executionResultContent) {
+            executionResultContent.textContent =
+                JSON.stringify(data, null, 2);
+        }
+
+        showMessage(
+            historyMessageElement,
+            "Workflow executed. History has been refreshed."
+        );
+
+        await loadExecutionHistory(workflowId);
+        await loadTotalExecutionCountFromCurrentWorkflows();
+
+    } catch (error) {
+        console.error("Workflow execution failed:", error);
+
+        if (executionResultElement) {
+            executionResultElement.hidden = false;
+        }
+
+        if (executionResultContent) {
+            executionResultContent.textContent = error.message;
+        }
+
+    } finally {
+        setButtonLoading(
+            executeButton,
+            false,
+            "Run workflow",
+            "Running workflow..."
+        );
+    }
+}
+
+
+// ============================================================
+// 9. LOAD EXECUTION HISTORY
+// ============================================================
+
+async function loadExecutionHistory(workflowId) {
+    if (!workflowId) {
+        clearExecutionHistory();
+        return;
+    }
+
+    try {
+        showMessage(historyMessageElement, "Loading execution history...");
+
+        const response = await fetch(
+            `${API_BASE}/workflows/${workflowId}/executions`,
+            {
+                method: "GET",
+                credentials: "same-origin"
+            }
+        );
+
+        const data = await getResponseData(response);
+        const executions = data.executions || [];
+
+        displayExecutionHistory(executions);
+
+        showMessage(
+            historyMessageElement,
+            executions.length
+                ? `${executions.length} recent execution(s) found.`
+                : "No executions recorded for this workflow yet."
+        );
+
+    } catch (error) {
+        console.error("Error loading execution history:", error);
+
+        showMessage(
+            historyMessageElement,
+            error.message,
+            true
+        );
+    }
+}
+
+
+// ============================================================
+// 10. DISPLAY EXECUTION HISTORY TABLE
+// ============================================================
+
+function displayExecutionHistory(executions) {
+    if (!historyTableBody) return;
+
+    historyTableBody.replaceChildren();
+
+    if (executions.length === 0) {
+        const row = document.createElement("tr");
+        const cell = createTextElement(
+            "td",
+            "No execution history available."
+        );
+
+        cell.colSpan = 4;
+
+        row.appendChild(cell);
+        historyTableBody.appendChild(row);
+
+        return;
+    }
+
+    executions.forEach(execution => {
+        const row = document.createElement("tr");
+
+        const executionId = createTextElement(
+            "td",
+            execution.id ?? "—"
+        );
+
+        const status = createTextElement(
+            "td",
+            execution.status || "Unknown"
+        );
+
+        const started = createTextElement(
+            "td",
+            formatDate(execution.started_at || execution.created_at)
+        );
+
+        const finished = createTextElement(
+            "td",
+            formatDate(execution.finished_at)
+        );
+
+        row.append(
+            executionId,
+            status,
+            started,
+            finished
+        );
+
+        historyTableBody.appendChild(row);
+    });
+}
+
+
+function clearExecutionHistory() {
+    if (historyTableBody) {
+        historyTableBody.replaceChildren();
+
+        const row = document.createElement("tr");
+        const cell = createTextElement(
+            "td",
+            "Select a workflow to view its history."
+        );
+
+        cell.colSpan = 4;
+
+        row.appendChild(cell);
+        historyTableBody.appendChild(row);
+    }
+
+    showMessage(
+        historyMessageElement,
+        "Select a workflow to view its history."
+    );
+}
+
+
+// ============================================================
+// 11. CALCULATE TOTAL EXECUTIONS
+// ============================================================
+
+// The executions endpoint returns the latest 50 records.
+// Therefore this metric counts the records returned by those
+// endpoints, not necessarily every historical execution.
+
+async function loadTotalExecutionCount(workflows) {
+    if (!totalExecutionsElement) return;
+
+    try {
+        const counts = await Promise.all(
+            workflows.map(async workflow => {
+                const response = await fetch(
+                    `${API_BASE}/workflows/${workflow.id}/executions`,
+                    {
+                        method: "GET",
+                        credentials: "same-origin"
+                    }
+                );
+
+                const data = await getResponseData(response);
+
+                return (data.executions || []).length;
             })
+        );
+
+        const total = counts.reduce(
+            (sum, count) => sum + count,
+            0
+        );
+
+        totalExecutionsElement.textContent = total;
+
+    } catch (error) {
+        console.error("Could not calculate execution count:", error);
+        totalExecutionsElement.textContent = "—";
+    }
+}
+
+
+async function loadTotalExecutionCountFromCurrentWorkflows() {
+    try {
+        const response = await fetch(`${API_BASE}/workflows`, {
+            method: "GET",
+            credentials: "same-origin"
         });
 
         const data = await getResponseData(response);
 
-        createWorkflowMessage.textContent =
-            `Workflow "${data.workflow.name}" created successfully.`;
-
-        // Clear the form after successful creation.
-        createWorkflowForm.reset();
-
-        // Reload the list so the new workflow appears.
-        await loadWorkflows();
-
-        // Select the new workflow and load its history.
-        workflowSelectElement.value = String(data.workflow.id);
-        await loadExecutionHistory(data.workflow.id);
+        await loadTotalExecutionCount(data.workflows || []);
 
     } catch (error) {
-        createWorkflowMessage.textContent =
-            `Could not create workflow: ${error.message}`;
-    } finally {
-        createWorkflowButton.disabled = false;
-        createWorkflowButton.textContent = "Create workflow";
+        console.error("Could not refresh execution count:", error);
     }
-});
+}
 
 
-// Load data when the dashboard first opens.
+// ============================================================
+// 12. WORKFLOW CARD BUTTONS
+// ============================================================
+
+if (workflowListElement) {
+    workflowListElement.addEventListener("click", event => {
+
+        const testButton = event.target.closest(
+            ".test-workflow-button"
+        );
+
+        const historyButton = event.target.closest(
+            ".view-history-button"
+        );
+
+        // Test workflow button
+        if (testButton) {
+            const workflowId = testButton.dataset.workflowId;
+
+            if (workflowSelectElement) {
+                workflowSelectElement.value = workflowId;
+            }
+
+            document.getElementById("test-workflow")?.scrollIntoView({
+                behavior: "smooth",
+                block: "start"
+            });
+        }
+
+        // View history button
+        if (historyButton) {
+            const workflowId = historyButton.dataset.workflowId;
+
+            if (workflowSelectElement) {
+                workflowSelectElement.value = workflowId;
+            }
+
+            loadExecutionHistory(workflowId);
+
+            document.getElementById("history")?.scrollIntoView({
+                behavior: "smooth",
+                block: "start"
+            });
+        }
+    });
+}
+
+
+// ============================================================
+// 13. EVENT LISTENERS
+// ============================================================
+
+// Create workflow
+if (createWorkflowForm) {
+    createWorkflowForm.addEventListener(
+        "submit",
+        createWorkflow
+    );
+}
+
+// Execute workflow
+if (executionForm) {
+    executionForm.addEventListener(
+        "submit",
+        executeWorkflow
+    );
+}
+
+// Change selected workflow
+if (workflowSelectElement) {
+    workflowSelectElement.addEventListener("change", () => {
+        loadExecutionHistory(workflowSelectElement.value);
+    });
+}
+
+// Refresh workflows
+if (refreshWorkflowsButton) {
+    refreshWorkflowsButton.addEventListener(
+        "click",
+        loadWorkflows
+    );
+}
+
+// Refresh execution history
+if (refreshHistoryButton) {
+    refreshHistoryButton.addEventListener("click", () => {
+        loadExecutionHistory(workflowSelectElement?.value);
+    });
+}
+
+
+// ============================================================
+// 14. INITIALISE DASHBOARD
+// ============================================================
+
 loadWorkflows();

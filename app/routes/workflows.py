@@ -1,4 +1,3 @@
-
 from flask import Blueprint, request, current_app, session
 
 from app import db
