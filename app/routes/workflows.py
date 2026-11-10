@@ -1,7 +1,9 @@
 from flask import Blueprint, request, current_app, session
 
+
 from app import db
 from app.models.workflow import Workflow
+from app.models .workflow_step import WorkflowStep
 
 
 workflows_bp = Blueprint("workflows", __name__)
@@ -40,9 +42,10 @@ def get_workflows():
     }, 200
 
 
+
 @workflows_bp.route("/api/workflows", methods=["POST"])
 def create_workflow():
-    # Only logged-in users can create workflows.
+    # 1. Only logged-in users can create workflows.
     user_id = session.get("user_id")
 
     if user_id is None:
@@ -50,6 +53,7 @@ def create_workflow():
             "error": "Authentication required. Please log in."
         }, 401
 
+    # 2. Read and validate the request body.
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
@@ -73,7 +77,60 @@ def create_workflow():
     if status not in ("active", "inactive"):
         return {"error": "status must be active or inactive."}, 400
 
-    # Assign ownership using the authenticated session.
+    # 3. Check whether the request includes workflow steps.
+    steps_data = data.get("steps")
+
+    if "steps" in data:
+
+        # The workflow builder requires exactly three steps.
+        if not isinstance(steps_data, list) or len(steps_data) != 3:
+            return {
+                "error": "A workflow must contain exactly three steps."
+            }, 400
+
+        expected_steps = ["trigger", "condition", "action"]
+
+        # Validate every step before starting the database transaction.
+        for index, step_data in enumerate(steps_data):
+
+            if not isinstance(step_data, dict):
+                return {
+                    "error": f"Step {index + 1} must be a JSON object."
+                }, 400
+
+            step_type = step_data.get("step_type")
+            step_order = step_data.get("step_order")
+            configuration = step_data.get("configuration")
+
+            if step_type != expected_steps[index]:
+                return {
+                    "error": (
+                        f"Step {index + 1} must be "
+                        f"a {expected_steps[index]} step."
+                    )
+                }, 400
+
+            if (
+                isinstance(step_order, bool)
+                or not isinstance(step_order, int)
+                or step_order != index + 1
+            ):
+                return {
+                    "error": (
+                        f"{step_type} must have step_order "
+                        f"{index + 1}."
+                    )
+                }, 400
+
+            if not isinstance(configuration, dict):
+                return {
+                    "error": (
+                        f"Configuration for the {step_type} "
+                        "step must be a JSON object."
+                    )
+                }, 400
+
+    # 4. Prepare the workflow.
     workflow = Workflow(
         user_id=user_id,
         name=name.strip(),
@@ -82,13 +139,44 @@ def create_workflow():
     )
 
     try:
+        # 5. Add the workflow to the current transaction.
         db.session.add(workflow)
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        current_app.logger.exception("Failed to create workflow")
-        return {"error": "Could not save the workflow."}, 500
 
+        # Flush sends the INSERT to the database and obtains
+        # the workflow ID without committing the transaction.
+        if "steps" in data:
+            db.session.flush()
+
+            # 6. Prepare all three workflow step records.
+            workflow_steps = [
+                WorkflowStep(
+                    workflow_id=workflow.id,
+                    step_type=step_data["step_type"],
+                    step_order=step_data["step_order"],
+                    configuration=step_data["configuration"]
+                )
+                for step_data in steps_data
+            ]
+
+            # Add all steps to the same transaction.
+            db.session.add_all(workflow_steps)
+
+        # 7. Commit the workflow and steps together.
+        db.session.commit()
+
+    except Exception:
+        # If anything fails, undo all database changes.
+        db.session.rollback()
+
+        current_app.logger.exception(
+            "Failed to create workflow and its steps"
+        )
+
+        return {
+            "error": "Could not save the workflow and its steps."
+        }, 500
+
+    # 8. Return the successfully created workflow.
     return {
         "message": "Workflow created successfully.",
         "workflow": {
@@ -101,3 +189,4 @@ def create_workflow():
             "updated_at": workflow.updated_at.isoformat()
         }
     }, 201
+
