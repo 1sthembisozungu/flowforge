@@ -399,9 +399,12 @@ function populateWorkflowSelect(workflows) {
 // 7. CREATE WORKFLOW
 // ============================================================
 
+
 async function createWorkflow(event) {
+    // Prevent the browser from submitting and refreshing the page.
     event.preventDefault();
 
+    // 1. Collect values from the workflow builder form.
     const workflowName = workflowNameInput.value.trim();
     const workflowDescription = workflowDescriptionInput.value.trim();
     const workflowStatus = workflowStatusInput.value;
@@ -415,6 +418,7 @@ async function createWorkflow(event) {
     const actionType = actionTypeInput.value;
     const actionMessage = actionMessageInput.value.trim();
 
+    // 2. Validate the required fields.
     if (
         !workflowName ||
         !conditionValue ||
@@ -429,6 +433,35 @@ async function createWorkflow(event) {
         return;
     }
 
+    // 3. Prepare all three workflow steps in JavaScript.
+    const steps = [
+        {
+            step_type: "trigger",
+            step_order: 1,
+            configuration: {
+                event: triggerEvent
+            }
+        },
+        {
+            step_type: "condition",
+            step_order: 2,
+            configuration: {
+                field: conditionField,
+                operator: conditionOperator,
+                value: conditionValue
+            }
+        },
+        {
+            step_type: "action",
+            step_order: 3,
+            configuration: {
+                type: actionType,
+                message: actionMessage
+            }
+        }
+    ];
+
+    // 4. Show that workflow creation is in progress.
     setButtonLoading(
         createWorkflowButton,
         true,
@@ -437,8 +470,8 @@ async function createWorkflow(event) {
     );
 
     try {
-        // STEP 1: Create the workflow.
-        const workflowResponse = await fetch(
+        // 5. Send the workflow and all three steps in ONE request.
+        const response = await fetch(
             `${API_BASE}/workflows`,
             {
                 method: "POST",
@@ -449,13 +482,15 @@ async function createWorkflow(event) {
                 body: JSON.stringify({
                     name: workflowName,
                     description: workflowDescription,
-                    status: workflowStatus
+                    status: workflowStatus,
+                    steps: steps
                 })
             }
         );
 
-        const workflowData = await getResponseData(workflowResponse);
-        const workflow = workflowData.workflow;
+        // 6. Check the server response.
+        const data = await getResponseData(response);
+        const workflow = data.workflow;
 
         if (!workflow?.id) {
             throw new Error(
@@ -463,63 +498,22 @@ async function createWorkflow(event) {
             );
         }
 
-        // STEP 2: Prepare the three workflow steps.
-        const steps = [
-            {
-                step_type: "trigger",
-                step_order: 1,
-                configuration: {
-                    event: triggerEvent
-                }
-            },
-            {
-                step_type: "condition",
-                step_order: 2,
-                configuration: {
-                    field: conditionField,
-                    operator: conditionOperator,
-                    value: conditionValue
-                }
-            },
-            {
-                step_type: "action",
-                step_order: 3,
-                configuration: {
-                    type: actionType,
-                    message: actionMessage
-                }
-            }
-        ];
-
-        // STEP 3: Save the steps one at a time.
-        for (const step of steps) {
-            const stepResponse = await fetch(
-                `${API_BASE}/workflows/${workflow.id}/steps`,
-                {
-                    method: "POST",
-                    credentials: "same-origin",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify(step)
-                }
-            );
-
-            await getResponseData(stepResponse);
-        }
-
+        // 7. Display the success message.
         showMessage(
             createWorkflowMessage,
             "Workflow and all three steps created successfully."
         );
 
+        // 8. Clear the workflow builder form.
         createWorkflowForm.reset();
 
-        // Reload the dashboard and select the new workflow.
+        // 9. Refresh the dashboard.
         await loadWorkflows();
 
+        // 10. Select the newly created workflow.
         if (workflowSelectElement) {
             workflowSelectElement.value = String(workflow.id);
+
             await loadExecutionHistory(workflow.id);
         }
 
@@ -533,6 +527,7 @@ async function createWorkflow(event) {
         );
 
     } finally {
+        // 11. Restore the create button.
         setButtonLoading(
             createWorkflowButton,
             false,
