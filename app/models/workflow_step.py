@@ -26,3 +26,9 @@ class WorkflowStep(db.Model):
         default=lambda: datetime.now(timezone.utc),
         nullable=False
     )
+
+    # Relationship back to the parent workflow.
+    workflow = db.relationship(
+        "Workflow",
+        back_populates="steps"
+    )

@@ -36,3 +36,8 @@ class WorkflowExecution(db.Model):
         db.DateTime,
         nullable=True
     )
+
+    workflow = db.relationship(
+            "Workflow",
+            back_populates="executions"
+    )

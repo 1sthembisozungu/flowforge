@@ -45,3 +45,16 @@ class Workflow(db.Model):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False
     )
+
+
+    steps = db.relationship(
+            "WorkflowStep",
+            back_populates="workflow",
+            cascade="all, delete-orphan"
+    )
+
+    executions = db.relationship(
+            "WorkflowExecution",
+            back_populates="workflow",
+            cascade="all, delete-orphan"
+    )

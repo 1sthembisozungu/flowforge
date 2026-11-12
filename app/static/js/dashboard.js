@@ -179,12 +179,13 @@ async function loadWorkflows() {
     }
 }
 
-
+// workflowListElement
 // ============================================================
 // 4. DISPLAY WORKFLOW CARDS
 // ============================================================
 
 function displayWorkflows(workflows) {
+
     if (!workflowListElement) return;
 
     workflowListElement.replaceChildren();
@@ -204,6 +205,12 @@ function displayWorkflows(workflows) {
     workflows.forEach(workflow => {
         const card = document.createElement("article");
         card.className = "workflow-card";
+
+        card.dataset.workflowId = workflow.id;
+        card.dataset.workflowName = workflow.name;
+        card.dataset.workflowDescription = workflow.description || "";
+
+        // This makes the existing values available when the user clicks Edit.
 
         const heading = createTextElement("h3", workflow.name);
 
@@ -227,6 +234,15 @@ function displayWorkflows(workflows) {
         stepSummary.className = "workflow-step-summary";
         stepSummary.textContent = "Loading workflow steps...";
 
+        const editButton = createTextElement(
+            "button",
+            "Edit",
+            "button secondary edit-workflow-button"
+        );
+
+        editButton.type = "button";
+        editButton.dataset.workflowId = workflow.id;
+
         const testButton = createTextElement(
             "button",
             "Test workflow",
@@ -245,15 +261,65 @@ function displayWorkflows(workflows) {
         historyButton.type = "button";
         historyButton.dataset.workflowId = workflow.id;
 
-        card.append(
+        const toggleStatusButton = createTextElement(
+            "button",
+            workflow.status === "active" ? "Deactivate" : "Activate",
+            "button secondary toggle-status-button"
+        );
+
+        toggleStatusButton.type = "button";
+        toggleStatusButton.dataset.workflowId = workflow.id;
+
+
+        // const toggleStatusButton = createTextElement(
+        //     "button",
+        //     workflow.status === "active" ? "Deactivate" : "Activate",
+        //     "button secondary toggle-status-button"
+        // );
+
+        toggleStatusButton.type = "button";
+        toggleStatusButton.dataset.workflowId = workflow.id;
+
+        const deleteButton = createTextElement(
+            "button",
+            "Delete",
+            "button secondary delete-workflow-button"
+        );
+
+        deleteButton.type = "button";
+        deleteButton.dataset.workflowId = workflow.id;
+
+        // What does this do?
+        // If the workflow is active, the button displays Deactivate.
+        // If the workflow is inactive, the button displays Activate.
+        // We attach the workflow ID so that we know which workflow to update when the button is clicked.
+
+        const content = document.createElement("div");
+        content.className = "workflow-card-content";
+
+        content.append(
             heading,
             description,
             status,
             createdAt,
-            stepSummary,
-            testButton,
-            historyButton
+            stepSummary
         );
+
+        const actions = document.createElement("div");
+        actions.className = "workflow-card-actions";
+
+        actions.append(
+            editButton,
+            toggleStatusButton,
+            testButton,
+            historyButton,
+            deleteButton
+        );
+
+
+        // toggleWorkflowStatus
+
+        card.append(content, actions);
 
         workflowListElement.appendChild(card);
 
@@ -262,6 +328,185 @@ function displayWorkflows(workflows) {
     });
 }
 
+// ============================================================
+// Gets current workflow information
+// ============================================================
+
+async function editWorkflow(workflowId, card) {
+    const currentName = card.dataset.workflowName;
+    const currentDescription = card.dataset.workflowDescription;
+
+    const newName = prompt(
+        "Enter the new workflow name:",
+        currentName
+    );
+
+    // Stop if the user cancels.
+    if (newName === null) return;
+
+    const newDescription = prompt(
+        "Enter the new workflow description:",
+        currentDescription
+    );
+
+    if (newDescription === null) return;
+
+    const name = newName.trim();
+    const description = newDescription.trim();
+
+    if (!name) {
+        alert("Workflow name cannot be empty.");
+        return;
+    }
+
+    try {
+        const response = await fetch(
+            `${API_BASE}/workflows/${workflowId}`,
+            {
+                method: "PUT",
+                credentials: "same-origin",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    name: name,
+                    description: description
+                })
+            }
+        );
+
+        await getResponseData(response);
+
+        await loadWorkflows();
+
+        showMessage(
+            workflowMessageElement,
+            "Workflow updated successfully."
+        );
+
+    } catch (error) {
+        console.error("Error updating workflow:", error);
+
+        showMessage(
+            workflowMessageElement,
+            error.message,
+            true
+        );
+    }
+}
+
+// What this function does:
+// 1. Gets the current workflow information.
+// 2. Asks the user for the new name and description.
+// 3. Checks that the name isn't empty.
+// 4. Sends a PUT request to Flask.
+// 5. Refreshes the dashboard after a successful update.
+// 6. Displays an appropriate success or error message.
+
+// ============================================================
+// Activates or deactivates a workflow
+// ============================================================
+
+async function toggleWorkflowStatus(workflowId) {
+    try {
+        // Find the workflow currently displayed in the dashboard.
+        const card = workflowListElement.querySelector(
+            `.workflow-card[data-workflow-id="${workflowId}"]`
+        );
+
+        if (!card) {
+            throw new Error("Workflow card not found.");
+        }
+
+        const currentStatus = card.querySelector(".status").textContent;
+
+        const newStatus = currentStatus === "active"
+            ? "inactive"
+            : "active";
+
+        const response = await fetch(
+            `${API_BASE}/workflows/${workflowId}/status`,
+            {
+                method: "PATCH",
+                credentials: "same-origin",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    status: newStatus
+                })
+            }
+        );
+
+        await getResponseData(response);
+
+        // Reload the dashboard to display the updated status.
+        await loadWorkflows();
+
+        showMessage(
+            workflowMessageElement,
+            `Workflow ${newStatus === "active" ? "activated" : "deactivated"} successfully.`
+        );
+
+    } catch (error) {
+        console.error("Error updating workflow status:", error);
+
+        showMessage(
+            workflowMessageElement,
+            error.message,
+            true
+        );
+    }
+}
+
+// ============================================================
+// Deletes a workflow
+// ============================================================
+
+async function deleteWorkflow(workflowId, card) {
+    const workflowName = card.dataset.workflowName;
+
+    // Ask the user to confirm before deleting.
+    const confirmed = confirm(
+        `Are you sure you want to delete "${workflowName}"? ` +
+        "This will also delete its steps and execution history."
+    );
+
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        const response = await fetch(
+            `${API_BASE}/workflows/${workflowId}`,
+            {
+                method: "DELETE",
+                credentials: "same-origin"
+            }
+        );
+
+        await getResponseData(response);
+
+        // Refresh the dashboard after successful deletion.
+        await loadWorkflows();
+
+        showMessage(
+            workflowMessageElement,
+            "Workflow deleted successfully."
+        );
+
+    } catch (error) {
+        console.error("Error deleting workflow:", error);
+
+        showMessage(
+            workflowMessageElement,
+            error.message,
+            true
+        );
+    }
+}
+
+// addEventListener
 
 // ============================================================
 // 5. LOAD WORKFLOW STEPS
@@ -792,6 +1037,7 @@ async function loadTotalExecutionCount(workflows) {
     }
 }
 
+// displayWorkflows
 
 async function loadTotalExecutionCountFromCurrentWorkflows() {
     try {
@@ -817,6 +1063,14 @@ async function loadTotalExecutionCountFromCurrentWorkflows() {
 if (workflowListElement) {
     workflowListElement.addEventListener("click", event => {
 
+        const editButton = event.target.closest(
+            ".edit-workflow-button"
+        );
+
+        const toggleStatusButton = event.target.closest(
+            ".toggle-status-button"
+        );
+
         const testButton = event.target.closest(
             ".test-workflow-button"
         );
@@ -824,6 +1078,39 @@ if (workflowListElement) {
         const historyButton = event.target.closest(
             ".view-history-button"
         );
+
+        const deleteButton = event.target.closest(
+            ".delete-workflow-button"
+        );
+
+        if (editButton) {
+            const workflowId = editButton.dataset.workflowId;
+
+            const card = editButton.closest(".workflow-card");
+
+            editWorkflow(workflowId, card);
+            return;
+
+            // the return prevents the same click from 
+            // being processed by another button handler.
+        }
+
+        if (toggleStatusButton) {
+            const workflowId = toggleStatusButton.dataset.workflowId;
+
+            toggleWorkflowStatus(workflowId);
+
+            return;
+        }
+
+        if (deleteButton) {
+            const workflowId = deleteButton.dataset.workflowId;
+            const card = deleteButton.closest(".workflow-card");
+
+            deleteWorkflow(workflowId, card);
+
+            return;
+        }
 
         // Test workflow button
         if (testButton) {

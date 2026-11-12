@@ -56,6 +56,18 @@ body {
     padding-left: 8px;
 }
 
+.workflow-card-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.workflow-card-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 .brand-icon {
     display: grid;
     place-items: center;
@@ -445,6 +457,10 @@ th {
 
     .stats-grid {
         grid-template-columns: 1fr;
+    }
+
+    .workflow-card-actions {
+        width: 100%;
     }
 }
 
