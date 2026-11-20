@@ -1,4 +1,4 @@
-
+import pytest
 from app import db
 from app.models.user import User
 from app.models.workflow import Workflow
@@ -477,9 +477,9 @@ def test_execute_workflow_with_invalid_condition_field(client, app):
     )
     assert response.json["result"]["action_executed"] is False
 
-def test_execute_workflow_with_unsupported_condition_operator(client, app):
-    user_id, workflow_id = create_test_workflow(app)
 
+def test_execute_workflow_with_unsupported_condition_o2perator(client, app):
+    user_id, workflow_id = create_test_workflow(app)
     login_as(client, user_id)
 
     # Change the condition to an unsupported operator.
@@ -511,3 +511,99 @@ def test_execute_workflow_with_unsupported_condition_operator(client, app):
         "Unsupported condition configuration."
     )
     assert response.json["result"]["action_executed"] is False
+
+
+def test_health_endpoint(client):
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json["status"] == "ok"
+
+
+@pytest.mark.parametrize(
+    "step_type",
+    ["trigger", "condition", "action"]
+)
+def test_execute_workflow_with_non_dictionary_configuration(
+    client, app, step_type
+):
+    user_id, workflow_id = create_test_workflow(app)
+    login_as(client, user_id)
+
+    # Replace the step configuration with an invalid list.
+    with app.app_context():
+        step = WorkflowStep.query.filter_by(
+            workflow_id=workflow_id,
+            step_type=step_type
+        ).first()
+
+        step.configuration = ["invalid", "configuration"]
+        db.session.commit()
+
+    response = client.post(
+        f"/api/workflows/{workflow_id}/execute",
+        json={
+            "subject": "Invoice received",
+            "body": "Please process this invoice."
+        }
+    )
+
+    assert response.status_code == 200
+    assert response.json["result"]["status"] == "failed"
+    assert response.json["result"]["reason"] == (
+        f"Invalid configuration for {step_type} step."
+    )
+    assert response.json["result"]["action_executed"] is False
+
+def test_user_list_endpoint_is_removed(client):
+    response = client.get("/api/users")
+
+    assert response.status_code == 404
+
+
+def test_unexpected_execution_error_marks_execution_as_failed(
+    client, app, monkeypatch, caplog
+):
+    user_id, workflow_id = create_test_workflow(app)
+    login_as(client, user_id)
+
+    # Simulate an unexpected failure inside the workflow engine.
+    def raise_execution_error(workflow, email):
+        raise RuntimeError("Simulated execution failure")
+
+    monkeypatch.setattr(
+        "app.routes.executions.execute_workflow",
+        raise_execution_error
+    )
+
+    response = client.post(
+        f"/api/workflows/{workflow_id}/execute",
+        json={
+            "subject": "Invoice received",
+            "body": "Please process this invoice."
+        }
+    )
+
+    # Verify that the API returns a controlled error.
+    assert response.status_code == 500
+    assert response.json["status"] == "failed"
+    assert response.json["error"] == "Workflow execution failed."
+
+    # Verify that the original exception was logged.
+    assert "Workflow execution failed." in caplog.text
+    assert "Simulated execution failure" in caplog.text
+
+    # Verify that the failed execution is saved in the database.
+    with app.app_context():
+        execution = WorkflowExecution.query.filter_by(
+            workflow_id=workflow_id
+        ).order_by(
+            WorkflowExecution.id.desc()
+        ).first()
+
+        assert execution is not None
+        assert execution.status == "failed"
+        assert execution.result == {
+            "error": "An unexpected error occurred during execution."
+        }
+        assert execution.finished_at is not None

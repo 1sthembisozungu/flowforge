@@ -82,29 +82,57 @@ def execute_workflow_route(workflow_id):
         db.session.commit()
 
     except Exception:
+        # 1. Roll back the failed transaction.
         db.session.rollback()
 
-        current_app.logger.exception("Workflow execution failed.")
-
-        execution = db.session.get(
-            WorkflowExecution,
-            execution_id
+        # 2. Log the original execution error.
+        current_app.logger.exception(
+            "Workflow execution failed."
         )
 
-        execution.status = "failed"
-        execution.result = {
-            "error": "An unexpected error occurred during execution."
-        }
-        execution.finished_at = datetime.now(timezone.utc)
+        # 3. Attempt to save the failed execution status.
+        try:
+            failed_execution = db.session.get(
+                WorkflowExecution,
+                execution_id
+            )
 
-        db.session.commit()
+            if failed_execution is not None:
+                failed_execution.status = "failed"
 
+                failed_execution.result = {
+                    "error": (
+                        "An unexpected error occurred during execution."
+                    )
+                }
+
+                failed_execution.finished_at = datetime.now(timezone.utc)
+
+                db.session.commit()
+
+            else:
+                current_app.logger.error(
+                    "Execution record %s could not be found.",
+                    execution_id
+                )
+
+        except Exception:
+            # 4. Handle failure during the recovery process.
+            db.session.rollback()
+
+            current_app.logger.exception(
+                "Could not save the failed status for execution %s.",
+                execution_id
+            )
+
+        # 5. Return a controlled error response.
         return {
-            "workflow_id": workflow.id,
+            "workflow_id": workflow_id,
             "execution_id": execution_id,
             "status": "failed",
             "error": "Workflow execution failed."
         }, 500
+
 
     # 6. Return the saved result.
     return {

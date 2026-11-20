@@ -1,5 +1,5 @@
 
-from flask import Blueprint, request, session
+from flask import Blueprint, current_app, request, session
 
 from app import db
 from app.models.workflow import Workflow
@@ -79,9 +79,18 @@ def create_workflow_step(workflow_id):
     try:
         db.session.add(step)
         db.session.commit()
+
     except Exception:
         db.session.rollback()
-        raise
+
+        current_app.logger.exception(
+            "Failed to create workflow step for workflow %s.",
+            workflow_id
+        )
+
+        return {
+            "error": "Could not create workflow step."
+        }, 500
 
     # 6. Return the newly created step.
     return {
@@ -116,8 +125,7 @@ def get_workflow_steps(workflow_id):
     if workflow is None or workflow.user_id != user_id:
         return {"error": "Workflow not found."}, 404
 
-    print("Logged-in user ID:", user_id)
-    print("Requested workflow ID:", workflow_id)
+
 
     # 3. Retrieve the workflow steps in execution order.
     steps = WorkflowStep.query.filter_by(

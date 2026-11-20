@@ -1,9 +1,18 @@
-# this file contain logic for interpreting and executing the saved steps
+
 from app.models.workflow_step import WorkflowStep
 
 
 def execute_workflow(workflow, email):
-    # An inactive workflow must not run.
+
+    # 1. Validate the incoming event.
+    if not isinstance(email, dict):
+        return {
+            "status": "failed",
+            "reason": "Email input must be a JSON object.",
+            "action_executed": False
+        }
+
+    # 2. An inactive workflow must not run.
     if workflow.status != "active":
         return {
             "status": "skipped",
@@ -11,12 +20,12 @@ def execute_workflow(workflow, email):
             "action_executed": False
         }
 
-    # Load the steps in the order they should run.
+    # 3. Load steps in execution order.
     steps = WorkflowStep.query.filter_by(
         workflow_id=workflow.id
     ).order_by(
         WorkflowStep.step_order.asc()
-    ).all()  #***
+    ).all()
 
     if not steps:
         return {
@@ -25,22 +34,40 @@ def execute_workflow(workflow, email):
             "action_executed": False
         }
 
-    # Confirm that the workflow has the expected structure.
+    # 4. Validate workflow structure.
     expected_types = ["trigger", "condition", "action"]
     actual_types = [step.step_type for step in steps]
 
     if actual_types != expected_types:
         return {
             "status": "failed",
-            "reason": "Workflow must contain a trigger, condition, and action in that order.",
+            "reason": (
+                "Workflow must contain a trigger, condition, "
+                "and action in that order."
+            ),
             "action_executed": False
         }
 
-    trigger = steps[0]
-    condition = steps[1]
-    action = steps[2]
+    trigger, condition, action = steps
 
-    # Step 1: Check the trigger.
+    # 5. Validate all configurations before using them.
+    configurations = {
+        "trigger": trigger.configuration,
+        "condition": condition.configuration,
+        "action": action.configuration
+    }
+
+    for step_type, configuration in configurations.items():
+        if not isinstance(configuration, dict):
+            return {
+                "status": "failed",
+                "reason": (
+                    f"Invalid configuration for {step_type} step."
+                ),
+                "action_executed": False
+            }
+
+    # 6. Check the trigger.
     if trigger.configuration.get("event") != "email_received":
         return {
             "status": "skipped",
@@ -48,7 +75,7 @@ def execute_workflow(workflow, email):
             "action_executed": False
         }
 
-    # Step 2: Evaluate the condition.
+    # 7. Evaluate the condition.
     config = condition.configuration
 
     field = config.get("field")
@@ -88,7 +115,7 @@ def execute_workflow(workflow, email):
             "action_executed": False
         }
 
-    # Step 3: Execute the simulated action.
+    # 8. Execute the action.
     action_config = action.configuration
 
     if action_config.get("type") != "log_message":
@@ -106,6 +133,8 @@ def execute_workflow(workflow, email):
             "reason": "Action message is missing.",
             "action_executed": False
         }
+
+        # execute_workflow
 
     return {
         "status": "completed",
